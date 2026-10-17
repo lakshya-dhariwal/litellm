@@ -1,11 +1,9 @@
 import time
-from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Iterator, Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter, with_config
-from typing_extensions import NotRequired, ReadOnly, TypedDict
 
 from litellm.llms.base_llm.base_model_iterator import BaseModelResponseIterator
 from litellm.types.llms.openai import AllMessageValues, ChatCompletionUsageBlock
@@ -29,24 +27,6 @@ if TYPE_CHECKING:
     LiteLLMLoggingObj = _LiteLLMLoggingObj
 else:
     LiteLLMLoggingObj = Any
-
-
-@with_config(ConfigDict(extra="allow", strict=True, hide_input_in_errors=True))
-class _WatsonxCompletionResult(TypedDict):
-    generated_text: ReadOnly[str]
-    input_token_count: ReadOnly[int]
-    generated_token_count: ReadOnly[int]
-    stop_reason: ReadOnly[str]
-
-
-@with_config(ConfigDict(extra="allow", strict=True, hide_input_in_errors=True))
-class _WatsonxCompletionResponse(TypedDict):
-    results: ReadOnly[Sequence[_WatsonxCompletionResult]]
-    model_id: NotRequired[ReadOnly[str | None]]
-    created_at: NotRequired[ReadOnly[str | None]]
-
-
-_WATSONX_COMPLETION_RESPONSE: Final[TypeAdapter[_WatsonxCompletionResponse]] = TypeAdapter(_WatsonxCompletionResponse)
 
 
 class IBMWatsonXAIConfig(IBMWatsonXMixin, BaseConfig):
@@ -310,14 +290,13 @@ class IBMWatsonXAIConfig(IBMWatsonXMixin, BaseConfig):
             original_response=raw_response.text,
         )
 
-        response_json: Final = raw_response.json()
+        json_resp: Final = raw_response.json()
 
-        if "results" not in response_json:
+        if "results" not in json_resp:
             raise WatsonXAIError(
                 status_code=500,
-                message=f"Error: Invalid response from Watsonx.ai API: {response_json}",
+                message=f"Error: Invalid response from Watsonx.ai API: {json_resp}",
             )
-        json_resp: Final[_WatsonxCompletionResponse] = _WATSONX_COMPLETION_RESPONSE.validate_python(response_json)
         if model_response is None:
             model_response = ModelResponse(model=json_resp.get("model_id", None))
         generated_text: Final = json_resp["results"][0]["generated_text"]
@@ -325,13 +304,12 @@ class IBMWatsonXAIConfig(IBMWatsonXMixin, BaseConfig):
         completion_tokens: Final = json_resp["results"][0]["generated_token_count"]
         model_response.choices[0].message.content = generated_text
         model_response.choices[0].finish_reason = map_finish_reason(json_resp["results"][0]["stop_reason"])
-        created_at: Final = json_resp.get("created_at")
-        if created_at:
+        if json_resp.get("created_at"):
             try:
-                created_datetime = datetime.fromisoformat(created_at)
+                created_datetime = datetime.fromisoformat(json_resp["created_at"])
             except ValueError:
                 # datetime.fromisoformat cannot handle 'Z' in Python 3.10
-                created_datetime = datetime.fromisoformat(f"{created_at.rstrip('Z')}+00:00")
+                created_datetime = datetime.fromisoformat(f"{json_resp['created_at'].rstrip('Z')}+00:00")
             model_response.created = int(created_datetime.timestamp())
         else:
             model_response.created = int(time.time())
