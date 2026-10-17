@@ -1,12 +1,18 @@
 import builtins
 from collections.abc import Mapping
-from typing import Any, Final
+from typing import Final
 
 import requests
+from pydantic import ConfigDict, TypeAdapter
 
 from litellm.litellm_core_utils.secret_redaction import redact_string
 
 from .exceptions import UnauthorizedError
+
+_KEY_MANAGEMENT_RESPONSE: Final = TypeAdapter(
+    dict[str, object],
+    config=ConfigDict(extra="allow", strict=True),
+)
 
 
 class KeysManagementClient:
@@ -47,7 +53,7 @@ class KeysManagementClient:
         return_full_object: bool | None = None,
         include_team_keys: bool | None = None,
         return_request: bool = False,
-    ) -> dict[str, Any] | requests.Request:
+    ) -> dict[str, object] | requests.Request:
         """
         List all API keys with optional filtering and pagination.
 
@@ -104,7 +110,7 @@ class KeysManagementClient:
         try:
             response: Final = session.send(request.prepare(), timeout=self._timeout)
             response.raise_for_status()
-            return response.json()
+            return _KEY_MANAGEMENT_RESPONSE.validate_python(response.json())
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
                 raise UnauthorizedError(e)
@@ -179,7 +185,7 @@ class KeysManagementClient:
         try:
             response: Final = session.send(request.prepare(), timeout=self._timeout)
             response.raise_for_status()
-            return response.json()
+            return _KEY_MANAGEMENT_RESPONSE.validate_python(response.json())
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
                 raise UnauthorizedError(e)
@@ -223,7 +229,7 @@ class KeysManagementClient:
         try:
             response: Final = session.send(request.prepare(), timeout=self._timeout)
             response.raise_for_status()
-            return response.json()
+            return _KEY_MANAGEMENT_RESPONSE.validate_python(response.json())
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
                 raise UnauthorizedError(e)
@@ -285,7 +291,7 @@ class KeysManagementClient:
             response: Final = session.send(request.prepare(), timeout=self._timeout)
             response_text = response.text
             response.raise_for_status()
-            return response.json()
+            return _KEY_MANAGEMENT_RESPONSE.validate_python(response.json())
         except Exception:
             raise Exception(f"Error updating key: {response_text}")
 
@@ -314,7 +320,7 @@ class KeysManagementClient:
         try:
             response: Final = session.send(request.prepare(), timeout=self._timeout)
             response.raise_for_status()
-            return response.json()
+            return _KEY_MANAGEMENT_RESPONSE.validate_python(response.json())
         except requests.exceptions.HTTPError as e:
             redacted_message: Final = redact_string(str(e))
             if e.response.status_code == 401:

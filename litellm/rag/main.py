@@ -14,7 +14,7 @@ import contextvars
 from collections.abc import Coroutine, Mapping
 from functools import partial
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final
 
 import httpx
 from pydantic import ConfigDict, TypeAdapter
@@ -34,6 +34,7 @@ from litellm.types.llms.openai import AllMessageValues
 from litellm.types.rag import (
     RAGIngestOptions,
     RAGIngestResponse,
+    RAGRerankConfig,
 )
 from litellm.types.utils import ModelResponse
 from litellm.utils import client
@@ -215,7 +216,7 @@ async def _execute_query_pipeline(
     model: str,
     messages: list[AllMessageValues],
     retrieval_config: Mapping[str, object],
-    rerank: dict[str, Any] | None = None,
+    rerank: RAGRerankConfig | None = None,
     stream: bool = False,
     vector_store_params: Mapping[str, object] | None = None,
     **kwargs,
@@ -286,6 +287,8 @@ async def _execute_query_pipeline(
     if rerank and rerank.get("enabled"):
         documents: Final = RAGQuery.extract_documents_from_search(search_response)
         if documents:
+            if "model" not in rerank:
+                raise KeyError("model")
             with internal_sub_call():
                 rerank_response = await litellm.arerank(
                     model=rerank["model"],
@@ -347,7 +350,7 @@ async def aquery(
     model: str,
     messages: list[AllMessageValues],
     retrieval_config: Mapping[str, object],
-    rerank: dict[str, Any] | None = None,
+    rerank: RAGRerankConfig | None = None,
     stream: bool = False,
     vector_store_params: Mapping[str, object] | None = None,
     **kwargs,
@@ -396,7 +399,7 @@ def query(
     model: str,
     messages: list[AllMessageValues],
     retrieval_config: Mapping[str, object],
-    rerank: dict[str, Any] | None = None,
+    rerank: RAGRerankConfig | None = None,
     stream: bool = False,
     vector_store_params: Mapping[str, object] | None = None,
     **kwargs,
