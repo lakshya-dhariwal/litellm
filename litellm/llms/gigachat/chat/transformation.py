@@ -11,10 +11,11 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict
 
 import httpx
-from pydantic import TypeAdapter
+from pydantic import ConfigDict, TypeAdapter, with_config
+from typing_extensions import ReadOnly
 
 from litellm._logging import verbose_logger
 from litellm.llms.base_llm.chat.transformation import BaseConfig, BaseLLMException
@@ -37,6 +38,39 @@ else:
 
 _EMPTY_FUNCTION: Final[Mapping[str, object]] = MappingProxyType({})
 _JSON_VALUE: Final = TypeAdapter(object)
+
+
+@with_config(ConfigDict(extra="allow", strict=True))
+class _GigaChatFunctionCall(TypedDict, total=False):
+    name: ReadOnly[str]
+    arguments: ReadOnly[object]
+
+
+@with_config(ConfigDict(extra="allow", strict=True))
+class _GigaChatMessage(TypedDict, total=False):
+    role: ReadOnly[Literal["assistant", "user", "system", "tool", "function"] | None]
+    content: ReadOnly[str | None]
+    function_call: ReadOnly[_GigaChatFunctionCall | None]
+    tool_calls: ReadOnly[Sequence[object] | None]
+
+
+@with_config(ConfigDict(extra="allow", strict=True))
+class _GigaChatChoice(TypedDict, total=False):
+    index: ReadOnly[int]
+    message: ReadOnly[_GigaChatMessage]
+    finish_reason: ReadOnly[str | None]
+
+
+@with_config(ConfigDict(extra="allow", strict=True))
+class _GigaChatResponse(TypedDict, total=False):
+    id: ReadOnly[str]
+    created: ReadOnly[int]
+    choices: ReadOnly[Sequence[_GigaChatChoice]]
+    usage: ReadOnly[Mapping[str, int]]
+
+
+_GIGACHAT_RESPONSE: Final = TypeAdapter(_GigaChatResponse)
+_EMPTY_MESSAGE: Final[_GigaChatMessage] = {}
 
 
 def is_valid_json(value: str) -> bool:
@@ -407,6 +441,48 @@ class GigaChatConfig(BaseConfig):
 
         return transformed
 
+    @staticmethod
+    def _resolve_choice_message(
+        message_data: _GigaChatMessage, finish_reason: str | None, is_structured_output: bool
+    ) -> tuple[str | None, Sequence[object] | None, str | None]:
+        """Return (content, tool_calls, finish_reason) for a GigaChat choice, mapping function_call to OpenAI shape."""
+        func_call: Final = message_data.get("function_call")
+        if finish_reason != "function_call" or not func_call:
+            return message_data.get("content"), message_data.get("tool_calls"), finish_reason
+
+        args: Final = func_call.get("arguments", {})
+        if is_structured_output:
+            content: Final = json.dumps(args, ensure_ascii=False) if isinstance(args, dict) else str(args)
+            return content, message_data.get("tool_calls"), "stop"
+
+        tool_calls: Final[Sequence[object]] = (
+            {
+                "id": f"call_{uuid.uuid4().hex[:24]}",
+                "type": "function",
+                "function": {
+                    "name": func_call.get("name", ""),
+                    "arguments": json.dumps(args, ensure_ascii=False) if isinstance(args, dict) else args,
+                },
+            },
+        )
+        return message_data.get("content"), tool_calls, "tool_calls"
+
+    def _transform_choice(self, choice: _GigaChatChoice, is_structured_output: bool) -> Choices:
+        """Build an OpenAI Choices from one GigaChat response choice."""
+        message_data: Final = choice.get("message", _EMPTY_MESSAGE)
+        content, tool_calls, finish_reason = self._resolve_choice_message(
+            message_data, choice.get("finish_reason", "stop"), is_structured_output
+        )
+        return Choices(
+            index=choice.get("index", 0),
+            message=Message(
+                role=message_data.get("role") or "assistant",
+                content=content,
+                tool_calls=None if tool_calls is None else list(tool_calls),
+            ),
+            finish_reason=finish_reason,
+        )
+
     def transform_response(
         self,
         model: str,
@@ -423,62 +499,19 @@ class GigaChatConfig(BaseConfig):
     ) -> ModelResponse:
         """Transform GigaChat response to OpenAI format."""
         try:
-            response_json: Final = raw_response.json()
+            raw_json: Final = raw_response.json()
         except Exception:
             raise GigaChatError(
                 status_code=raw_response.status_code,
                 message=f"Invalid JSON response: {raw_response.text}",
             )
 
-        is_structured_output: Final = optional_params.get("_structured_output", False)
+        response_json: Final = _GIGACHAT_RESPONSE.validate_python(raw_json)
+        is_plain_output: Final = not optional_params.get("_structured_output", False)
 
-        choices: Final[list[Choices]] = []  # mutable-ok: accumulator for building response choices
-        for choice in response_json.get("choices", []):
-            message_data = choice.get("message", {})
-            finish_reason = choice.get("finish_reason", "stop")
-
-            if finish_reason == "function_call" and message_data.get("function_call"):
-                func_call = message_data["function_call"]
-                args = func_call.get("arguments", {})
-
-                if is_structured_output:
-                    if isinstance(args, dict):
-                        content = json.dumps(args, ensure_ascii=False)
-                    else:
-                        content = str(args)
-                    message_data["content"] = content
-                    message_data.pop("function_call", None)
-                    message_data.pop("functions_state_id", None)
-                    finish_reason = "stop"
-                else:
-                    if isinstance(args, dict):
-                        args = json.dumps(args, ensure_ascii=False)
-                    message_data["tool_calls"] = [
-                        {
-                            "id": f"call_{uuid.uuid4().hex[:24]}",
-                            "type": "function",
-                            "function": {
-                                "name": func_call.get("name", ""),
-                                "arguments": args,
-                            },
-                        }
-                    ]
-                    message_data.pop("function_call", None)
-                    finish_reason = "tool_calls"
-
-            message_data.pop("functions_state_id", None)
-
-            choices.append(
-                Choices(
-                    index=choice.get("index", 0),
-                    message=Message(
-                        role=message_data.get("role", "assistant"),
-                        content=message_data.get("content"),
-                        tool_calls=message_data.get("tool_calls"),
-                    ),
-                    finish_reason=finish_reason,
-                )
-            )
+        choices: Final = [
+            self._transform_choice(choice, not is_plain_output) for choice in response_json.get("choices", ())
+        ]
 
         # Build usage
         usage_data: Final = response_json.get("usage", {})
