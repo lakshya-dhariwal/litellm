@@ -1,12 +1,10 @@
 import base64
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from io import BufferedReader, BytesIO
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import httpx
 from httpx._types import RequestFiles
-from pydantic import ConfigDict, TypeAdapter, with_config
-from typing_extensions import NotRequired, ReadOnly, TypedDict
 
 from litellm.images.utils import ImageEditRequestUtils
 from litellm.llms.base_llm.image_edit.transformation import BaseImageEditConfig
@@ -35,33 +33,9 @@ else:
     LiteLLMLoggingObj = Any
 
 
-@with_config(ConfigDict(extra="allow", strict=True))
-class _GeminiPart(TypedDict, total=False):
-    inlineData: ReadOnly[NotRequired[Mapping[str, object]]]
-
-
-@with_config(ConfigDict(extra="allow", strict=True))
-class _GeminiContent(TypedDict, total=False):
-    parts: ReadOnly[NotRequired[Sequence[_GeminiPart]]]
-
-
-@with_config(ConfigDict(extra="allow", strict=True))
-class _GeminiCandidate(TypedDict, total=False):
-    content: ReadOnly[NotRequired[_GeminiContent]]
-
-
-@with_config(ConfigDict(extra="allow", strict=True))
-class _GeminiImageEditResponse(TypedDict, total=False):
-    candidates: ReadOnly[NotRequired[Sequence[_GeminiCandidate]]]
-    usageMetadata: ReadOnly[NotRequired[dict[str, object]]]
-
-
-_GEMINI_IMAGE_EDIT_RESPONSE: Final = TypeAdapter(_GeminiImageEditResponse)
-
-
 class GeminiImageEditConfig(BaseImageEditConfig):
     DEFAULT_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
-    SUPPORTED_PARAMS: Sequence[str] = ["n", "size", "imageConfig"]
+    SUPPORTED_PARAMS: list[str] = ["n", "size", "imageConfig"]
 
     def get_supported_openai_params(self, model: str) -> list[str]:
         return list(self.SUPPORTED_PARAMS)
@@ -103,7 +77,7 @@ class GeminiImageEditConfig(BaseImageEditConfig):
         self,
         model: str,
         api_base: str | None,
-        litellm_params: Mapping[str, object],
+        litellm_params: dict,
     ) -> str:
         base_url = api_base or get_secret_str("GEMINI_API_BASE") or self.DEFAULT_BASE_URL
         base_url = base_url.rstrip("/")
@@ -116,7 +90,7 @@ class GeminiImageEditConfig(BaseImageEditConfig):
         image: FileTypes | None,
         image_edit_optional_request_params: Mapping[str, object],
         litellm_params: GenericLiteLLMParams,
-        headers: Mapping[str, str],
+        headers: dict,
     ) -> tuple[dict[str, object], RequestFiles | None]:
         inline_parts: Final = self._prepare_inline_image_parts(image) if image else []
         if not inline_parts:
@@ -151,7 +125,7 @@ class GeminiImageEditConfig(BaseImageEditConfig):
     ) -> ImageResponse:
         model_response: Final = ImageResponse()
         try:
-            response_json: Final = _GEMINI_IMAGE_EDIT_RESPONSE.validate_python(raw_response.json())
+            response_json: Final = raw_response.json()
         except Exception as exc:
             raise self.get_error_class(
                 error_message=f"Error transforming image edit response: {exc}",
