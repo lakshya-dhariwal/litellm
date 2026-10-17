@@ -1,6 +1,7 @@
 """Teams management client for LiteLLM proxy."""
 
-from typing import Final
+import builtins
+from typing import Any, Final
 
 import requests
 
@@ -39,7 +40,7 @@ class TeamsManagementClient:
         self,
         user_id: str | None = None,
         organization_id: str | None = None,
-    ) -> object:
+    ) -> builtins.list[dict[str, Any]]:
         """
         List teams that the user belongs to.
 
@@ -55,10 +56,11 @@ class TeamsManagementClient:
             UnauthorizedError: If authentication fails
         """
         url: Final = f"{self._base_url}/team/list"
-        params: Final = {
-            **({"user_id": user_id} if user_id else {}),
-            **({"organization_id": organization_id} if organization_id else {}),
-        }
+        params: Final = {}
+        if user_id:
+            params["user_id"] = user_id
+        if organization_id:
+            params["organization_id"] = organization_id
 
         response: Final = requests.get(url, headers=self._get_headers(), params=params, timeout=self._timeout)
 
@@ -125,7 +127,7 @@ class TeamsManagementClient:
         response.raise_for_status()
         return response.json()
 
-    def get_available(self) -> object:
+    def get_available(self) -> builtins.list[dict[str, Any]]:
         """
         Get list of available teams that the user can join.
 
