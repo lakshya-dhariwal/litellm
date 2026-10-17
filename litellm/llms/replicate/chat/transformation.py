@@ -309,7 +309,9 @@ class ReplicateConfig(BaseConfig):
         """
         response_json: Final = _JSON_BODY.validate_python(response.json())
         prediction_urls: Final = _REPLICATE_PREDICTION.validate_python(response_json).get("urls")
-        prediction_url: Final = prediction_urls.get("get") if prediction_urls is not None else None
+        prediction_url: Final = (
+            prediction_urls["get"] if prediction_urls is not None and "get" in prediction_urls else None
+        )
         if prediction_url is None:
             raise ReplicateError(
                 status_code=400,
