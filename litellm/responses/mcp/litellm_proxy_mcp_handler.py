@@ -52,7 +52,7 @@ else:
 
 # NOTE: We intentionally keep ToolParam as a broad type here to avoid tight coupling
 ToolParam: TypeAlias = Mapping[str, object]
-SplitTools: TypeAlias = tuple[list[ToolParam], list[Any]]
+SplitTools: TypeAlias = tuple[list[ToolParam], list[ToolParam]]
 
 
 class MCPToolResult(TypedDict):
@@ -438,7 +438,7 @@ class LiteLLM_Proxy_MCP_Handler:
         mcp_tools_with_litellm_proxy: Sequence[Mapping[str, object]],
         litellm_trace_id: str | None = None,
         request_tags: list[str] | None = None,
-    ) -> tuple[list[Any], dict[str, str]]:
+    ) -> tuple[list[FunctionToolParam], dict[str, str]]:
         """
         Centralized method to process MCP tools through the complete pipeline.
 
