@@ -2480,22 +2480,9 @@ class AmazonConverseConfig(BaseConfig):
         if message.content is not None:
             try:
                 tool_call_names: Final = self.get_tool_call_names(tools)
-                json_content: Final = _JSON_OBJECT.validate_python(json.loads(message.content))
-                function_name: Final = json_content.get("name")
-                function_arguments: Final = json_content.get("arguments")
-                function_parameters: Final = json_content.get("parameters")
-                if (
-                    json_content.get("type") == "function"
-                    and isinstance(function_name, str)
-                    and function_name in tool_call_names
-                    and (function_arguments is None or isinstance(function_arguments, (dict, str)))
-                ):
-                    function: Final = (
-                        Function(name=function_name, parameters=function_parameters)
-                        if function_arguments is None and isinstance(function_parameters, dict)
-                        else Function(arguments=function_arguments, name=function_name)
-                    )
-                    tool_calls: Final = [ChatCompletionMessageToolCall(function=function)]
+                json_content: Final = json.loads(message.content)
+                if json_content.get("type") == "function" and json_content.get("name") in tool_call_names:
+                    tool_calls: Final = [ChatCompletionMessageToolCall(function=Function(**json_content))]
 
                     message.tool_calls = tool_calls
                     message.content = None
