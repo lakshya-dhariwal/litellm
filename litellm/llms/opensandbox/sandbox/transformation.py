@@ -5,7 +5,8 @@ from collections.abc import Mapping
 from typing import Final, cast
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter
+from pydantic import ConfigDict, TypeAdapter, with_config
+from typing_extensions import ReadOnly, TypedDict
 
 from litellm.constants import (
     OPEN_SANDBOX_API_BASE_ENV_VAR,
@@ -41,6 +42,15 @@ MAX_OUTPUT_BYTES: Final = SANDBOX_MAX_OUTPUT_BYTES
 
 _JSON_OBJECT: Final = TypeAdapter(Mapping[str, object], config=ConfigDict(hide_input_in_errors=True))
 _JSON_VALUE: Final = TypeAdapter(object)
+
+
+@with_config(ConfigDict(extra="allow", strict=True))
+class _ExecdEndpointResponse(TypedDict, total=False):
+    endpoint: ReadOnly[object]
+    headers: ReadOnly[object]
+
+
+_EXECD_ENDPOINT_RESPONSE: Final = TypeAdapter(_ExecdEndpointResponse)
 
 
 class OpenSandboxSandboxConfig(BaseSandboxConfig):
@@ -320,7 +330,7 @@ class OpenSandboxSandboxConfig(BaseSandboxConfig):
             headers=headers,
             params={"use_server_proxy": use_server_proxy},
         )
-        data: Final = response.json()
+        data: Final = _EXECD_ENDPOINT_RESPONSE.validate_python(response.json())
         endpoint: Final = data.get("endpoint")
         if not endpoint:
             raise ValueError(f"OpenSandbox did not return an execd endpoint for {sandbox_id}")
@@ -491,7 +501,7 @@ class OpenSandboxSandboxConfig(BaseSandboxConfig):
         if not data:
             return None
         try:
-            parsed: Final = json.loads(data)
+            parsed: Final = _JSON_VALUE.validate_python(json.loads(data))
         except json.JSONDecodeError:
             return None
         if not isinstance(parsed, dict):
