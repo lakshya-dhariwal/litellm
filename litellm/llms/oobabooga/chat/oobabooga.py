@@ -1,6 +1,9 @@
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Final
+
+from pydantic import ConfigDict, TypeAdapter, with_config
+from typing_extensions import ReadOnly, TypedDict
 
 import litellm
 from litellm.llms.custom_httpx.http_handler import get_httpx_client
@@ -11,6 +14,20 @@ from .transformation import OobaboogaConfig
 
 if TYPE_CHECKING:
     from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
+
+
+@with_config(ConfigDict(extra="allow", strict=True))
+class _OobaboogaEmbeddingItem(TypedDict):
+    embedding: ReadOnly[Sequence[object]]
+
+
+@with_config(ConfigDict(extra="allow", strict=True))
+class _OobaboogaEmbeddingResponse(TypedDict):
+    data: ReadOnly[Sequence[_OobaboogaEmbeddingItem]]
+
+
+_OOBABOOGA_EMBEDDING_RESPONSE: Final = TypeAdapter(_OobaboogaEmbeddingResponse)
+
 
 oobabooga_config: Final = OobaboogaConfig()
 
@@ -139,15 +156,16 @@ def embedding(
         )
 
     # Process response data
+    embedding_response: Final = _OOBABOOGA_EMBEDDING_RESPONSE.validate_python(completion_response, strict=True)
     model_response.data = [
         {
-            "embedding": completion_response["data"][0]["embedding"],
+            "embedding": embedding_response["data"][0]["embedding"],
             "index": 0,
             "object": "embedding",
         }
     ]
 
-    num_tokens: Final = len(completion_response["data"][0]["embedding"])
+    num_tokens: Final = len(embedding_response["data"][0]["embedding"])
     # Adding metadata to response
     setattr(
         model_response,
