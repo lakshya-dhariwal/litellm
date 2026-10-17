@@ -1,31 +1,10 @@
 import builtins
 from collections.abc import Mapping
-from typing import Final
+from typing import Any, Final
 
 import requests
-from pydantic import ConfigDict, TypeAdapter, with_config
-from typing_extensions import NotRequired, ReadOnly, TypedDict
 
 from .exceptions import NotFoundError, UnauthorizedError
-
-
-@with_config(ConfigDict(extra="allow", strict=True))
-class _ModelInfo(TypedDict, total=False):
-    id: ReadOnly[object]
-
-
-@with_config(ConfigDict(extra="allow", strict=True))
-class _Model(TypedDict, total=False):
-    model_name: ReadOnly[object]
-    model_info: ReadOnly[NotRequired[_ModelInfo]]
-
-
-@with_config(ConfigDict(extra="allow", strict=True))
-class _ModelsListResponse(TypedDict):
-    data: ReadOnly[list[_Model]]
-
-
-_MODELS_LIST_RESPONSE: Final = TypeAdapter(_ModelsListResponse)
 
 
 class ModelsManagementClient:
@@ -54,7 +33,7 @@ class ModelsManagementClient:
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
 
-    def list(self, return_request: bool = False) -> builtins.list[_Model] | requests.Request:
+    def list(self, return_request: bool = False) -> builtins.list[dict[str, Any]] | requests.Request:
         """
         Get the list of models supported by the server.
 
@@ -81,7 +60,7 @@ class ModelsManagementClient:
         try:
             response: Final = session.send(request.prepare(), timeout=self._timeout)
             response.raise_for_status()
-            return _MODELS_LIST_RESPONSE.validate_python(response.json())["data"]
+            return response.json()["data"]
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
                 raise UnauthorizedError(e)
@@ -179,7 +158,7 @@ class ModelsManagementClient:
         model_id: str | None = None,
         model_name: str | None = None,
         return_request: bool = False,
-    ) -> _Model | requests.Request:
+    ) -> dict[str, Any] | requests.Request:
         """
         Get information about a specific model by its ID or name.
 
@@ -232,7 +211,7 @@ class ModelsManagementClient:
             )
         )
 
-    def info(self, return_request: bool = False) -> builtins.list[_Model] | requests.Request:
+    def info(self, return_request: bool = False) -> builtins.list[dict[str, Any]] | requests.Request:
         """
         Get detailed information about all models from the server.
 
@@ -258,7 +237,7 @@ class ModelsManagementClient:
         try:
             response: Final = session.send(request.prepare(), timeout=self._timeout)
             response.raise_for_status()
-            return _MODELS_LIST_RESPONSE.validate_python(response.json())["data"]
+            return response.json()["data"]
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
                 raise UnauthorizedError(e)
