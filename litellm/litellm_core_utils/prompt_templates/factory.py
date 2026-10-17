@@ -71,6 +71,8 @@ from .common_utils import (
 )
 from .image_handling import convert_url_to_base64
 
+_JSON_VALUE: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue, config=ConfigDict(strict=True, extra="allow"))
+
 
 def default_pt(messages):
     return " ".join(message["content"] for message in messages)
@@ -1020,8 +1022,8 @@ def convert_to_anthropic_tool_invoke_xml(tool_calls: list) -> str:
         tool_function = get_attribute_or_key(tool, "function")
         tool_name = get_attribute_or_key(tool_function, "name")
         tool_arguments = get_attribute_or_key(tool_function, "arguments")
-        parsed_args = parse_tool_call_arguments(
-            tool_arguments, tool_name=tool_name, context="Anthropic XML tool invoke"
+        parsed_args = _JSON_VALUE.validate_python(
+            parse_tool_call_arguments(tool_arguments, tool_name=tool_name, context="Anthropic XML tool invoke")
         )
         if isinstance(parsed_args, dict):
             parameters = "".join(f"<{param}>{val}</{param}>\n" for param, val in parsed_args.items())
@@ -1627,7 +1629,7 @@ def convert_to_gemini_tool_call_result(
     try:
         if content_str.strip().startswith("{") or content_str.strip().startswith("["):
             # Try to parse as JSON (for Computer Use structured responses)
-            parsed: Final[JsonValue] = json.loads(content_str)
+            parsed: Final = _JSON_VALUE.validate_python(json.loads(content_str))
             if isinstance(parsed, dict) and not (_may_spell_ref_key(content_str) and _contains_part_reference(parsed)):
                 response_data = parsed  # Use the parsed JSON directly
             else:
@@ -3963,7 +3965,7 @@ def _convert_to_bedrock_tool_call_invoke(
                     arguments_dict = {}
                 else:
                     try:
-                        arguments_dict = json.loads(arguments)
+                        arguments_dict = _JSON_VALUE.validate_python(json.loads(arguments))
                         # Ensure arguments_dict is always a dict
                         # (Bedrock requires toolUse.input to be an object).
                         # Some providers return arguments: '""' which
